@@ -16,12 +16,26 @@ private:
 	Q_OBJECT
 	Q_DISABLE_COPY(LogTextBrowser)
 
+protected:
+	void mouseDoubleClickEvent(QMouseEvent *event) Q_DECL_OVERRIDE;
+	void resizeEvent(QResizeEvent *event) Q_DECL_OVERRIDE;
+
 public:
 	LogTextBrowser(QWidget *p = nullptr);
 
 	int getLogScroll();
 	void setLogScroll(int scroll_pos);
 	bool isScrolledToBottom();
+
+public slots:
+	/// Rescales inline images in the log to fit the current viewport width,
+	/// preserving aspect ratio and scroll position.
+	void scaleImages();
+
+signals:
+	/// Emitted when an inline image is double-clicked, so it can be opened in
+	/// a preview dialog. The cursor points at the image fragment.
+	void imageClicked(QTextCursor cursor);
 };
 
 class ChatbarTextEdit : public QTextEdit {

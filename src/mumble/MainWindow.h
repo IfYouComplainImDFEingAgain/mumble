@@ -137,6 +137,12 @@ public:
 	/// save when activating the "Save Image As..." context menu item.
 	QTextCursor qtcSaveImageCursor;
 
+	/// Decodes the full-resolution image for the given log image resource name.
+	/// Inline log images may be down-scaled for display, so the original is
+	/// recovered by decoding the data: URL directly; falls back to the cached
+	/// (possibly scaled) resource if that fails. Returns a null image on failure.
+	QImage decodeFullSizeImage(const QString &resName) const;
+
 	QPointer< Channel > cContextChannel;
 	QPointer< ClientUser > cuContextUser;
 

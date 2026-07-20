@@ -492,6 +492,11 @@ void MainWindow::setupGui() {
 	qteLog->document()->setMaximumBlockCount(Global::get().s.iMaxLogBlocks);
 	qteLog->document()->setDefaultStyleSheet(qApp->styleSheet());
 
+	connect(qteLog, &LogTextBrowser::imageClicked, this, [this](QTextCursor cursor) {
+		qtcSaveImageCursor = cursor;
+		showImageDialog();
+	});
+
 	pmModel = new UserModel(qtvUsers);
 	qtvUsers->setModel(pmModel);
 	qtvUsers->setRowHidden(0, QModelIndex(), true);
@@ -1094,8 +1099,7 @@ void MainWindow::saveImageAs() {
 	}
 
 	QString resName = qtcSaveImageCursor.charFormat().toImageFormat().name();
-	QVariant res    = qteLog->document()->resource(QTextDocument::ImageResource, resName);
-	QImage img      = res.value< QImage >();
+	QImage img      = decodeFullSizeImage(resName);
 	bool ok         = img.save(fname);
 	if (!ok) {
 		// In case fname did not contain a file extension, try saving with an
@@ -4348,12 +4352,54 @@ void MainWindow::on_muteCuePopup_triggered() {
 	}
 }
 
+QImage MainWindow::decodeFullSizeImage(const QString &resName) const {
+	QImage img;
+
+	// Inline log images may be down-scaled for display, which also replaces the
+	// cached resource with the scaled version. Recover the original by decoding
+	// the data: URL directly. Check the prefix without QUrl, which can fail on
+	// very long data URLs.
+	if (resName.startsWith(QLatin1String("data:"))) {
+		// Parse data URL: data:image/<format>;base64,<DATA>
+		QString dataStr    = resName.mid(5); // Skip "data:"
+		qsizetype commaPos = dataStr.indexOf(QLatin1Char(','));
+		if (commaPos > 0) {
+			// Extract format hint from the mime type (e.g. "image/JPEG;base64" -> "JPEG")
+			QString mimeInfo = dataStr.left(commaPos);
+			QByteArray format;
+			if (mimeInfo.startsWith(QLatin1String("image/"))) {
+				QString fmt         = mimeInfo.mid(6); // Skip "image/"
+				qsizetype semicolon = fmt.indexOf(QLatin1Char(';'));
+				if (semicolon > 0) {
+					fmt = fmt.left(semicolon);
+				}
+				format = fmt.toUpper().toLatin1();
+			}
+
+			QString base64Data = dataStr.mid(commaPos + 1);
+			QByteArray decoded = QByteArray::fromBase64(base64Data.toLatin1());
+			if (!format.isEmpty()) {
+				img.loadFromData(decoded, format.constData());
+			} else {
+				img.loadFromData(decoded);
+			}
+		}
+	}
+
+	// Fall back to the cached resource if direct decoding failed.
+	if (img.isNull()) {
+		QVariant res = qteLog->document()->resource(QTextDocument::ImageResource, resName);
+		img          = res.value< QImage >();
+	}
+
+	return img;
+}
+
 void MainWindow::showImageDialog() {
 	if (!qtcSaveImageCursor.isNull() && qtcSaveImageCursor.charFormat().isImageFormat()) {
 		QTextImageFormat imgFmt = qtcSaveImageCursor.charFormat().toImageFormat();
 		QString resName         = imgFmt.name();
-		QVariant res            = qteLog->document()->resource(QTextDocument::ImageResource, resName);
-		QImage img              = res.value< QImage >();
+		QImage img              = decodeFullSizeImage(resName);
 
 		if (!img.isNull()) {
 			QPixmap pixmap             = QPixmap::fromImage(img);

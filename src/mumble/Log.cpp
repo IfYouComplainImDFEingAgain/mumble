@@ -812,6 +812,9 @@ void Log::log(MsgType mt, const QString &console, const QString &terse, bool own
 		// Set the line height of the trailing blank line to zero
 		tc.setBlockFormat(bf);
 
+		// Scale any images in the newly added content to fit the viewport
+		tlog->scaleImages();
+
 		if (restoreScroll) {
 			tlog->setLogScroll(oldscrollvalue);
 		}

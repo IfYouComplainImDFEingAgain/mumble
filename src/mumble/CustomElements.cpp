@@ -18,6 +18,11 @@
 #include <QtGui/QClipboard>
 #include <QtGui/QContextMenuEvent>
 #include <QtGui/QKeyEvent>
+#include <QtGui/QMouseEvent>
+#include <QtGui/QResizeEvent>
+#include <QtGui/QTextBlock>
+#include <QtGui/QTextCursor>
+#include <QtGui/QTextImageFormat>
 #include <QtWidgets/QScrollBar>
 
 LogTextBrowser::LogTextBrowser(QWidget *p) : QTextBrowser(p) {
@@ -34,6 +39,117 @@ void LogTextBrowser::setLogScroll(int scroll_pos) {
 bool LogTextBrowser::isScrolledToBottom() {
 	const QScrollBar *scrollBar = verticalScrollBar();
 	return scrollBar->value() == scrollBar->maximum();
+}
+
+void LogTextBrowser::mouseDoubleClickEvent(QMouseEvent *event) {
+	if (event->button() == Qt::LeftButton) {
+		QTextCursor cursor  = cursorForPosition(event->pos());
+		QTextCharFormat fmt = cursor.charFormat();
+
+		// Work around imprecise cursor image identification (same as the context menu):
+		// the cursor is shifted half the character's width to the right on the image
+		// element, so move forward one character to also detect on its left half.
+		if (fmt.objectType() == QTextFormat::NoObject) {
+			cursor.movePosition(QTextCursor::NextCharacter);
+			fmt = cursor.charFormat();
+		}
+
+		if (fmt.isImageFormat()) {
+			emit imageClicked(cursor);
+			event->accept();
+			return;
+		}
+	}
+
+	QTextBrowser::mouseDoubleClickEvent(event);
+}
+
+void LogTextBrowser::resizeEvent(QResizeEvent *event) {
+	QTextBrowser::resizeEvent(event);
+	scaleImages();
+}
+
+void LogTextBrowser::scaleImages() {
+	if (!document()) {
+		return;
+	}
+
+	int availableWidth = viewport()->width();
+	if (availableWidth <= 0) {
+		return;
+	}
+
+	// Save scroll state before making changes - setCharFormat() can cause unwanted scrolling
+	const bool wasAtBottom = isScrolledToBottom();
+	const int oldScroll    = getLogScroll();
+
+	// Update document text width
+	document()->setTextWidth(availableWidth);
+
+	// First pass: collect all images that need resizing
+	struct ImageUpdate {
+		int position;
+		int length;
+		QTextImageFormat format;
+	};
+	QList< ImageUpdate > updates;
+
+	QTextBlock block = document()->begin();
+	while (block.isValid()) {
+		for (QTextBlock::iterator it = block.begin(); !it.atEnd(); ++it) {
+			QTextFragment fragment = it.fragment();
+			if (!fragment.isValid()) {
+				continue;
+			}
+
+			QTextCharFormat fmt = fragment.charFormat();
+			if (!fmt.isImageFormat()) {
+				continue;
+			}
+
+			QTextImageFormat imgFmt = fmt.toImageFormat();
+			QString imgName         = imgFmt.name();
+
+			// Get original image dimensions from the resource
+			QVariant res = document()->resource(QTextDocument::ImageResource, QUrl(imgName));
+			QImage img   = res.value< QImage >();
+
+			if (img.isNull() || img.width() <= 0) {
+				continue;
+			}
+
+			int origWidth  = img.width();
+			int origHeight = img.height();
+
+			// Calculate new dimensions maintaining aspect ratio
+			int newWidth  = qMin(origWidth, availableWidth);
+			int newHeight = (origHeight * newWidth) / origWidth;
+
+			// Only update if dimensions changed
+			if (static_cast< int >(imgFmt.width()) != newWidth || static_cast< int >(imgFmt.height()) != newHeight) {
+				imgFmt.setWidth(newWidth);
+				imgFmt.setHeight(newHeight);
+				updates.append({ fragment.position(), fragment.length(), imgFmt });
+			}
+		}
+		block = block.next();
+	}
+
+	// Second pass: apply updates (in reverse order to preserve positions)
+	for (qsizetype i = updates.size() - 1; i >= 0; --i) {
+		const ImageUpdate &update = updates[i];
+		QTextCursor cursor(document());
+		cursor.setPosition(update.position);
+		cursor.setPosition(update.position + update.length, QTextCursor::KeepAnchor);
+		cursor.setCharFormat(update.format);
+	}
+
+	// Restore scroll state - setCharFormat() above may have scrolled to the cursor position
+	if (wasAtBottom) {
+		verticalScrollBar()->setValue(verticalScrollBar()->maximum());
+	} else {
+		setLogScroll(oldScroll);
+	}
 }
 
 
