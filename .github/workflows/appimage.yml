@@ -1,0 +1,121 @@
+name: AppImage
+
+# Produces a self-contained Mumble client AppImage that does NOT depend on the
+# host's system Qt/OpenSSL/etc., so it keeps working across rolling-distro
+# (e.g. Arch) library updates without recompiling.
+#
+# Runs on:
+#   - every pushed tag matching v*   -> also attaches the AppImage to a Release
+#   - manual dispatch                -> uploads the AppImage as a workflow artifact
+#
+# Note on the runner image: we intentionally use ubuntu-latest (newest glibc).
+# glibc is only forward-compatible, so this AppImage targets systems whose glibc
+# is >= the runner's. That always holds for Arch (bleeding-edge glibc). If you
+# ever need to share the AppImage with older distros, pin this to the OLDEST
+# Ubuntu you must support instead.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to attach the AppImage to a GitHub Release on tag
+
+jobs:
+  appimage:
+    name: Build Mumble client AppImage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0   # scripts/mumble-version.py wants full history/tags
+
+      # Reuses the project's own dependency logic (distro Qt6, OpenSSL, protobuf,
+      # Poco, speech-dispatcher, ALSA, ...) so this workflow stays in sync with
+      # what the rest of CI installs.
+      - name: Install build dependencies
+        uses: ./.github/actions/install-dependencies
+        with:
+          type: shared
+          # The action derives its script name from the part before the hyphen,
+          # so this must start with "ubuntu-" (not runner.os, which is "Linux").
+          os: ubuntu-latest
+          arch: x86_64
+
+      # FUSE is unavailable on GitHub runners; make bundled AppImage tools
+      # self-extract instead of mounting.
+      - name: Configure AppImage tooling env
+        run: echo "APPIMAGE_EXTRACT_AND_RUN=1" >> "$GITHUB_ENV"
+
+      - name: Configure (CMake)
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -Dclient=ON \
+            -Dserver=OFF \
+            -Dtests=OFF \
+            -Dice=OFF \
+            -Doverlay-xcompile=OFF
+
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+
+      - name: Install into AppDir
+        run: DESTDIR="$PWD/AppDir" cmake --install build
+
+      - name: Fetch linuxdeploy + Qt plugin
+        run: |
+          base="https://github.com/linuxdeploy"
+          curl -fsSL -o linuxdeploy.AppImage \
+            "$base/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+          curl -fsSL -o linuxdeploy-plugin-qt.AppImage \
+            "$base/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
+          chmod +x linuxdeploy*.AppImage
+
+      - name: Determine version string
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build AppImage
+        env:
+          # linuxdeploy-plugin-qt needs qmake to locate the Qt install.
+          QMAKE: /usr/bin/qmake6
+          # Qt plugins Mumble needs at runtime that aren't auto-detected from
+          # the binary's direct links: SVG (tray/app icon), TLS (OpenSSL
+          # backend), SQL drivers (local settings/log DB), Wayland session.
+          EXTRA_QT_PLUGINS: svg;tls;sqldrivers;wayland-shell-integration;waylandcompositor
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          ./linuxdeploy.AppImage \
+            --appdir AppDir \
+            --plugin qt \
+            --desktop-file AppDir/usr/share/applications/info.mumble.Mumble.desktop \
+            --icon-file icons/mumble.svg \
+            --output appimage
+          # Normalize the output name.
+          mv Mumble*-x86_64.AppImage "Mumble-${VERSION}-x86_64.AppImage"
+          ls -lh Mumble-*.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mumble-AppImage-x86_64
+          path: Mumble-*.AppImage
+          if-no-files-found: error
+
+      - name: Attach to Release (tags only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Mumble-*.AppImage
