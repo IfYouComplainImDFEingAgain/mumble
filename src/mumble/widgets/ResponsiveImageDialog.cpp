@@ -5,11 +5,17 @@
 
 #include "ResponsiveImageDialog.h"
 
+#include <QtGui/QAction>
+#include <QtGui/QContextMenuEvent>
+#include <QtGui/QMouseEvent>
 #include <QtGui/QWheelEvent>
 #include <QtWidgets/QApplication>
+#include <QtWidgets/QFileDialog>
 #include <QtWidgets/QGraphicsPixmapItem>
+#include <QtWidgets/QMenu>
 #include <QtWidgets/QVBoxLayout>
 
+#include <QtCore/QDateTime>
 #include <QtCore/QTimer>
 #include <algorithm>
 
@@ -72,8 +78,46 @@ bool ResponsiveImageDialog::eventFilter(QObject *obj, QEvent *event) {
 			m_view->scale(1.0 / 1.1, 1.0 / 1.1);
 		}
 		return true; // Event handled.
+	} else if (obj == m_view->viewport() && event->type() == QEvent::MouseButtonPress) {
+		QMouseEvent *mouseEvent = static_cast< QMouseEvent * >(event);
+		if (mouseEvent->button() == Qt::LeftButton) {
+			m_pressPos = mouseEvent->pos();
+		}
+	} else if (obj == m_view->viewport() && event->type() == QEvent::MouseButtonRelease) {
+		QMouseEvent *mouseEvent = static_cast< QMouseEvent * >(event);
+		// A left click (press and release without a meaningful drag) closes the
+		// dialog; anything past the drag threshold is treated as a pan.
+		if (mouseEvent->button() == Qt::LeftButton
+			&& (mouseEvent->pos() - m_pressPos).manhattanLength() < QApplication::startDragDistance()) {
+			accept();
+			return true; // Event handled.
+		}
+	} else if (obj == m_view->viewport() && event->type() == QEvent::ContextMenu) {
+		QContextMenuEvent *ctxEvent = static_cast< QContextMenuEvent * >(event);
+		QMenu menu(this);
+		QAction *saveAction = menu.addAction(tr("Save Image As..."));
+		connect(saveAction, &QAction::triggered, this, &ResponsiveImageDialog::saveImage);
+		menu.exec(ctxEvent->globalPos());
+		return true; // Event handled.
 	} else if (obj == m_view && event->type() == QEvent::Resize) {
 		m_view->fitInView(m_scene->itemsBoundingRect(), Qt::KeepAspectRatio);
 	}
 	return QDialog::eventFilter(obj, event);
+}
+
+void ResponsiveImageDialog::saveImage() {
+	QDateTime now = QDateTime::currentDateTime();
+	QString defaultName =
+		QString::fromLatin1("Mumble-%1.jpg").arg(now.toString(QLatin1String("yyyy-MM-dd-HHmmss")));
+
+	QString fname =
+		QFileDialog::getSaveFileName(this, tr("Save Image File"), defaultName, tr("Images (*.png *.jpg *.jpeg)"));
+	if (fname.isEmpty()) {
+		return;
+	}
+
+	if (!m_pixmap.save(fname)) {
+		// In case fname did not contain a file extension, try an explicit format.
+		m_pixmap.save(fname, "PNG");
+	}
 }

@@ -6,6 +6,7 @@
 #ifndef MUMBLE_MUMBLE_WIDGETS_RESPONSIVEIMAGEDIALOG_H_
 #define MUMBLE_MUMBLE_WIDGETS_RESPONSIVEIMAGEDIALOG_H_
 
+#include <QtCore/QPoint>
 #include <QtGui/QPixmap>
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QGraphicsScene>
@@ -19,9 +20,16 @@ private:
 	QGraphicsView *m_view;
 	QGraphicsScene *m_scene;
 	QPixmap m_pixmap;
+	/// Viewport position of the last left-button press, used to tell a click
+	/// (which closes the dialog) apart from a drag (which pans the image).
+	QPoint m_pressPos;
 
 public:
 	explicit ResponsiveImageDialog(const QPixmap &pixmap, QWidget *parent = nullptr);
+
+private slots:
+	/// Prompts for a location and saves the full-size image there.
+	void saveImage();
 
 protected:
 	void showEvent(QShowEvent *event) override;
