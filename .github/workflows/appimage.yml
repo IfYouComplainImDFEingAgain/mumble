@@ -111,9 +111,15 @@ jobs:
             --desktop-file AppDir/usr/share/applications/info.mumble.Mumble.desktop \
             --icon-file icons/mumble.svg \
             --output appimage
-          # Normalize the output name.
-          mv Mumble*-x86_64.AppImage "Mumble-${VERSION}-x86_64.AppImage"
-          ls -lh Mumble-*.AppImage
+          # Normalize the output name. With VERSION set, linuxdeploy may
+          # already produce exactly this name, so only rename if it differs
+          # (mv onto itself is an error).
+          built="$(ls Mumble*-x86_64.AppImage | head -n1)"
+          target="Mumble-${VERSION}-x86_64.AppImage"
+          if [[ "$built" != "$target" ]]; then
+            mv "$built" "$target"
+          fi
+          ls -lh "$target"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
