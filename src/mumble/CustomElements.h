@@ -25,6 +25,7 @@ public:
 
 	int getLogScroll();
 	void setLogScroll(int scroll_pos);
+	void scrollToBottom();
 	bool isScrolledToBottom();
 
 public slots:

@@ -812,11 +812,18 @@ void Log::log(MsgType mt, const QString &console, const QString &terse, bool own
 		// Set the line height of the trailing blank line to zero
 		tc.setBlockFormat(bf);
 
-		// Scale any images in the newly added content to fit the viewport
+		// Scale any images in the newly added content to fit the viewport.
+		// This reflows the document (image and text-width changes) *after* the
+		// view was pinned to the bottom above, so we must (re)apply the scroll
+		// position afterwards rather than relying on the earlier pin surviving.
 		tlog->scaleImages();
 
 		if (restoreScroll) {
 			tlog->setLogScroll(oldscrollvalue);
+		} else {
+			// Keep the log pinned to the bottom (auto-scroll stickiness), even
+			// if scaleImages() changed the document height.
+			tlog->scrollToBottom();
 		}
 	}
 

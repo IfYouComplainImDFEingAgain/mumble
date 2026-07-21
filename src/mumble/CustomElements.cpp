@@ -36,6 +36,10 @@ void LogTextBrowser::setLogScroll(int scroll_pos) {
 	verticalScrollBar()->setValue(scroll_pos);
 }
 
+void LogTextBrowser::scrollToBottom() {
+	verticalScrollBar()->setValue(verticalScrollBar()->maximum());
+}
+
 bool LogTextBrowser::isScrolledToBottom() {
 	const QScrollBar *scrollBar = verticalScrollBar();
 	return scrollBar->value() == scrollBar->maximum();
