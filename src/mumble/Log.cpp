@@ -28,6 +28,7 @@
 #include <QSignalBlocker>
 #include <QtCore/QMutexLocker>
 #include <QtCore/QRegularExpression>
+#include <QtCore/QTimer>
 #include <QtGui/QImageWriter>
 #include <QtGui/QScreen>
 #include <QtGui/QTextBlock>
@@ -822,8 +823,12 @@ void Log::log(MsgType mt, const QString &console, const QString &terse, bool own
 			tlog->setLogScroll(oldscrollvalue);
 		} else {
 			// Keep the log pinned to the bottom (auto-scroll stickiness), even
-			// if scaleImages() changed the document height.
+			// if scaleImages() changed the document height. The scrollbar range
+			// for images (especially tall ones) is only finalized on the next
+			// event-loop pass, so pin now for the common case and again after
+			// layout settles so a stale maximum can't leave us short of bottom.
 			tlog->scrollToBottom();
+			QTimer::singleShot(0, tlog, [tlog]() { tlog->scrollToBottom(); });
 		}
 	}
 
